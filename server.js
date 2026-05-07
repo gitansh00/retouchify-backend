@@ -4,12 +4,13 @@ const nodemailer = require('nodemailer');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const https = require('https');
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// --- CORS: Allow your Vercel frontend ---
+// --- CORS ---
 app.use(cors({
     origin: [
         'https://retouchify-frontend.vercel.app',
@@ -30,8 +31,8 @@ if (!fs.existsSync(uploadDir)) {
 }
 
 const storage = multer.diskStorage({
-    destination: (req, file, cb) => cb(null, 'uploads/'),
-    filename: (req, file, cb) => {
+    destination: function(req, file, cb) { cb(null, 'uploads/'); },
+    filename: function(req, file, cb) {
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
         cb(null, uniqueSuffix + '-' + file.originalname);
     }
@@ -39,15 +40,18 @@ const storage = multer.diskStorage({
 const upload = multer({ storage: storage });
 
 // --- HEALTH CHECK ---
-app.get('/', (req, res) => {
+app.get('/', function(req, res) {
     res.send('Retouchify Backend is officially live and running!');
 });
 
-// --- ROUTE: CONTACT FORM & AUTO-REPLY ---
-app.post('/send-message', async (req, res) => {
-    const { name, email, service, budget, message } = req.body;
+// --- ROUTE: CONTACT FORM ---
+app.post('/send-message', async function(req, res) {
+    const name = req.body.name;
+    const email = req.body.email;
+    const service = req.body.service;
+    const budget = req.body.budget;
+    const message = req.body.message;
 
-    // Validate required fields
     if (!name || !email || !message) {
         return res.status(400).json({ success: false, error: 'Missing required fields.' });
     }
@@ -64,15 +68,15 @@ app.post('/send-message', async (req, res) => {
         from: process.env.EMAIL_USER,
         replyTo: email,
         to: process.env.EMAIL_USER,
-        subject: `New Project: ${service} from ${name}`,
-        text: `Name: ${name}\nEmail: ${email}\nBudget: ${budget}\n\nMessage:\n${message}`
+        subject: 'New Project: ' + service + ' from ' + name,
+        text: 'Name: ' + name + '\nEmail: ' + email + '\nBudget: ' + budget + '\n\nMessage:\n' + message
     };
 
     const clientMail = {
-        from: `"Retouchify" <${process.env.EMAIL_USER}>`,
+        from: '"Retouchify" <' + process.env.EMAIL_USER + '>',
         to: email,
         subject: 'We Received Your Request! - Retouchify',
-        html: `<h3>Hi ${name},</h3><p>Thanks for reaching out! We've received your request for <b>${service}</b> and will get back to you within 24 hours.</p>`
+        html: '<h3>Hi ' + name + ',</h3><p>Thanks for reaching out! We received your request for <b>' + service + '</b> and will get back to you within 24 hours.</p>'
     };
 
     try {
@@ -87,8 +91,8 @@ app.post('/send-message', async (req, res) => {
     }
 });
 
-// --- ROUTE: QUICK PHOTO UPLOAD (with email notification + attachments) ---
-app.post('/upload', upload.array('photos', 10), async (req, res) => {
+// --- ROUTE: PHOTO UPLOAD ---
+app.post('/upload', upload.array('photos', 10), async function(req, res) {
     if (!req.files || req.files.length === 0) {
         return res.status(400).json({ success: false, message: 'No files uploaded.' });
     }
@@ -96,11 +100,9 @@ app.post('/upload', upload.array('photos', 10), async (req, res) => {
     const uploadTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
     const fileCount = req.files.length;
 
-    // Build attachments array for nodemailer
-    const attachments = req.files.map(file => ({
-        filename: file.originalname,
-        path: file.path
-    }));
+    const attachments = req.files.map(function(file) {
+        return { filename: file.originalname, path: file.path };
+    });
 
     const transporter = nodemailer.createTransport({
         service: 'gmail',
@@ -110,34 +112,25 @@ app.post('/upload', upload.array('photos', 10), async (req, res) => {
         }
     });
 
+    const fileList = req.files.map(function(f) {
+        return '<li>' + f.originalname + ' (' + (f.size / 1024).toFixed(1) + ' KB)</li>';
+    }).join('');
+
     const uploadMail = {
-        from: `"Retouchify" <${process.env.EMAIL_USER}>`,
+        from: '"Retouchify" <' + process.env.EMAIL_USER + '>',
         to: process.env.EMAIL_USER,
-        subject: `📸 New Photo Upload — ${fileCount} file${fileCount > 1 ? 's' : ''} received`,
-        html: `
-            <h2>New Quick Project Upload</h2>
-            <p><b>Files received:</b> ${fileCount}</p>
-            <p><b>Upload time:</b> ${uploadTime} (IST)</p>
-            <p><b>File names:</b></p>
-            <ul>
-                ${req.files.map(f => `<li>${f.originalname} (${(f.size / 1024).toFixed(1)} KB)</li>`).join('')}
-            </ul>
-            <p>The uploaded photos are attached to this email.</p>
-        `,
+        subject: 'New Photo Upload - ' + fileCount + ' file(s) received',
+        html: '<h2>New Quick Project Upload</h2><p><b>Files received:</b> ' + fileCount + '</p><p><b>Upload time:</b> ' + uploadTime + ' (IST)</p><ul>' + fileList + '</ul><p>Photos are attached.</p>',
         attachments: attachments
     };
 
     try {
         await transporter.sendMail(uploadMail);
-        console.log(`Upload email sent with ${fileCount} attachment(s)`);
-
-        // Delete files from server after emailing to save disk space
-        req.files.forEach(file => {
-            fs.unlink(file.path, (err) => {
+        req.files.forEach(function(file) {
+            fs.unlink(file.path, function(err) {
                 if (err) console.error('Could not delete file:', file.path);
             });
         });
-
         res.status(200).json({ success: true, count: fileCount });
     } catch (error) {
         console.error('Upload email error:', error.message);
@@ -145,10 +138,16 @@ app.post('/upload', upload.array('photos', 10), async (req, res) => {
     }
 });
 
-app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-});
+// --- START SERVER ---
+app.listen(PORT, function() {
+    console.log('Server running on port ' + PORT);
 
-setInterval(() => {
-    https.get('https://retouchify-backend-1.onrender.com/', ...)
-}, 10 * 60 * 1000);
+    // Keep-alive ping every 10 minutes
+    setInterval(function() {
+        https.get('https://retouchify-backend-1.onrender.com/', function(response) {
+            console.log('Keep-alive ping sent, status: ' + response.statusCode);
+        }).on('error', function(err) {
+            console.error('Keep-alive ping failed: ' + err.message);
+        });
+    }, 10 * 60 * 1000);
+});
