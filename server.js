@@ -9,11 +9,20 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware
-app.use(cors());
+// --- CORS: Allow your Vercel frontend ---
+app.use(cors({
+    origin: [
+        'https://retouchify-frontend.vercel.app',
+        'http://localhost:5173',
+        'http://localhost:3000'
+    ],
+    methods: ['GET', 'POST'],
+    credentials: true
+}));
+
 app.use(express.json());
 
-// --- 1. SETUP: FILE UPLOAD STORAGE ---
+// --- FILE UPLOAD STORAGE ---
 const uploadDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)) {
     fs.mkdirSync(uploadDir);
@@ -28,15 +37,25 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage: storage });
 
-// --- 2. ROUTE: CONTACT FORM & AUTO-REPLY ---
+// --- HEALTH CHECK ---
+app.get('/', (req, res) => {
+    res.send('Retouchify Backend is officially live and running!');
+});
+
+// --- ROUTE: CONTACT FORM & AUTO-REPLY ---
 app.post('/send-message', async (req, res) => {
     const { name, email, service, budget, message } = req.body;
+
+    // Validate required fields
+    if (!name || !email || !message) {
+        return res.status(400).json({ success: false, error: 'Missing required fields.' });
+    }
 
     const transporter = nodemailer.createTransport({
         service: 'gmail',
         auth: {
             user: process.env.EMAIL_USER,
-            pass: process.env.EMAIL_PASS 
+            pass: process.env.EMAIL_PASS   // Must be a Gmail App Password, NOT your Gmail login password
         }
     });
 
@@ -62,12 +81,12 @@ app.post('/send-message', async (req, res) => {
         ]);
         res.status(200).json({ success: true });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ success: false });
+        console.error('Email error:', error.message);
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 
-// --- 3. ROUTE: QUICK PHOTO UPLOAD ---
+// --- ROUTE: QUICK PHOTO UPLOAD ---
 app.post('/upload', upload.array('photos', 10), (req, res) => {
     if (!req.files || req.files.length === 0) {
         return res.status(400).json({ success: false, message: 'No files uploaded.' });
@@ -76,9 +95,5 @@ app.post('/upload', upload.array('photos', 10), (req, res) => {
 });
 
 app.listen(PORT, () => {
-    console.log(`Server running at http://localhost:${PORT}`);
-});
-// Add this simple test route
-app.get('/', (req, res) => {
-    res.send('Retouchify Backend is officially live and running!');
+    console.log(`Server running on port ${PORT}`);
 });
