@@ -148,3 +148,7 @@ app.post('/upload', upload.array('photos', 10), async (req, res) => {
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });
+
+setInterval(() => {
+    https.get('https://retouchify-backend-1.onrender.com/', ...)
+}, 10 * 60 * 1000);
