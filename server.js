@@ -8,7 +8,7 @@ const https = require('https');
 require('dotenv').config();
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000;
 
 // --- CORS ---
 app.use(cors({
@@ -16,7 +16,7 @@ app.use(cors({
         'https://retouchify-frontend.vercel.app',
         'https://retouchify.vercel.app',
         'http://localhost:5173',
-        'http://localhost:3000'
+        'http://localhost:10000'
     ],
     methods: ['GET', 'POST'],
     credentials: true
