@@ -13,6 +13,7 @@ const PORT = process.env.PORT || 3000;
 app.use(cors({
     origin: [
         'https://retouchify-frontend.vercel.app',
+        'https://retouchify.vercel.app',
         'http://localhost:5173',
         'http://localhost:3000'
     ],
@@ -55,7 +56,7 @@ app.post('/send-message', async (req, res) => {
         service: 'gmail',
         auth: {
             user: process.env.EMAIL_USER,
-            pass: process.env.EMAIL_PASS   // Must be a Gmail App Password, NOT your Gmail login password
+            pass: process.env.EMAIL_PASS
         }
     });
 
@@ -86,12 +87,62 @@ app.post('/send-message', async (req, res) => {
     }
 });
 
-// --- ROUTE: QUICK PHOTO UPLOAD ---
-app.post('/upload', upload.array('photos', 10), (req, res) => {
+// --- ROUTE: QUICK PHOTO UPLOAD (with email notification + attachments) ---
+app.post('/upload', upload.array('photos', 10), async (req, res) => {
     if (!req.files || req.files.length === 0) {
         return res.status(400).json({ success: false, message: 'No files uploaded.' });
     }
-    res.status(200).json({ success: true, count: req.files.length });
+
+    const uploadTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+    const fileCount = req.files.length;
+
+    // Build attachments array for nodemailer
+    const attachments = req.files.map(file => ({
+        filename: file.originalname,
+        path: file.path
+    }));
+
+    const transporter = nodemailer.createTransport({
+        service: 'gmail',
+        auth: {
+            user: process.env.EMAIL_USER,
+            pass: process.env.EMAIL_PASS
+        }
+    });
+
+    const uploadMail = {
+        from: `"Retouchify" <${process.env.EMAIL_USER}>`,
+        to: process.env.EMAIL_USER,
+        subject: `📸 New Photo Upload — ${fileCount} file${fileCount > 1 ? 's' : ''} received`,
+        html: `
+            <h2>New Quick Project Upload</h2>
+            <p><b>Files received:</b> ${fileCount}</p>
+            <p><b>Upload time:</b> ${uploadTime} (IST)</p>
+            <p><b>File names:</b></p>
+            <ul>
+                ${req.files.map(f => `<li>${f.originalname} (${(f.size / 1024).toFixed(1)} KB)</li>`).join('')}
+            </ul>
+            <p>The uploaded photos are attached to this email.</p>
+        `,
+        attachments: attachments
+    };
+
+    try {
+        await transporter.sendMail(uploadMail);
+        console.log(`Upload email sent with ${fileCount} attachment(s)`);
+
+        // Delete files from server after emailing to save disk space
+        req.files.forEach(file => {
+            fs.unlink(file.path, (err) => {
+                if (err) console.error('Could not delete file:', file.path);
+            });
+        });
+
+        res.status(200).json({ success: true, count: fileCount });
+    } catch (error) {
+        console.error('Upload email error:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
 });
 
 app.listen(PORT, () => {
